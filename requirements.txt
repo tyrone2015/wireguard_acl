@@ -1,0 +1,14 @@
+cryptography
+httpx
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+python-jose
+passlib
+python-multipart
+pytest
+qrcode
+Pillow
+
+psutil

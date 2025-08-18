@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: wireguard_backend
+    ports:
+      - "51820:51820/udp"
+    volumes:
+      # 挂载宿主机 WireGuard 配置和命令，便于后端操作
+      - ./data/wireguard:/etc/wireguard
+      # - /usr/bin/wg:/usr/bin/wg
+      # - /usr/sbin/iptables:/usr/sbin/iptables
+      # 挂载数据库目录，实现数据持久化
+      - ./data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    # 如需直接操作网络，建议加上特权模式
+    # privileged: true
+    cap_add:
+      - NET_ADMIN
+      # - SYS_MODULE
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: 1
+      net.ipv4.ip_forward: 1
+    networks:
+      - wireguard_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: wireguard_frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    networks:
+      - wireguard_net
+
+networks:
+  wireguard_net:
+    driver: bridge

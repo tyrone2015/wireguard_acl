@@ -1,0 +1,29 @@
+# 后端 Dockerfile，支持 FastAPI 或 Django
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+
+# 安装 WireGuard 及相关工具
+RUN apt-get update && \
+  apt-get install -y wireguard iproute2 iptables procps net-tools tzdata dnsmasq && \
+  ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+  echo "Asia/Shanghai" > /etc/timezone && \
+  rm -rf /var/lib/apt/lists/*
+
+# 先复制 requirements.txt 并安装依赖，利用缓存
+COPY ./requirements.txt ./requirements.txt
+RUN pip install --upgrade pip && \
+  pip install -r requirements.txt
+
+# 设置时区环境变量
+ENV TZ=Asia/Shanghai
+# 再复制代码
+COPY ./app ./app
+# 复制启动脚本并赋予执行权限
+COPY ./run_backend.sh /app/run_backend.sh
+RUN chmod +x /app/run_backend.sh
+
+# 启动 dnsmasq（用于处理来自 wg0 的 DNS 重定向请求）和 FastAPI 后端
+CMD ["/app/run_backend.sh"]
