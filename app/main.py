@@ -7,6 +7,7 @@ from app.models import Base, User, AppSecret
 from app.peer import router as peer_router
 from app.acl import router as acl_router
 from app.auth import router as auth_router
+from app.backup import router as backup_router
 import os
 from cryptography.fernet import Fernet
 
@@ -79,3 +80,4 @@ app.include_router(acl_router, prefix="")
 app.include_router(auth_router, prefix="")
 app.include_router(system_status_router, prefix="")
 app.include_router(activity_router, prefix="")
+app.include_router(backup_router, prefix="")

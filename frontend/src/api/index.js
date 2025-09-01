@@ -87,6 +87,10 @@ export const peerAPI = {
       responseType: 'blob'
     })
   },
+  // 切换Peer状态
+  togglePeer(id) {
+    return request.post(`/peers/${id}/toggle`)
+  },
 }
 
 // ACL 相关 API
@@ -136,5 +140,56 @@ export const systemStatsAPI = {
 export const activitiesAPI = {
   getRecent(limit = 4) {
     return request.get(`/activities?limit=${limit}`)
+  }
+}
+
+// 批量操作接口
+export const batchAPI = {
+  // Peer批量操作
+  batchCreatePeers(data) {
+    return request.post('/peers/batch', data)
+  },
+  batchTogglePeers(data) {
+    return request.post('/peers/batch-toggle', data)
+  },
+  batchDeletePeers(data) {
+    return request.delete('/peers/batch', { data })
+  },
+  
+  // ACL批量操作
+  batchCreateACLs(data) {
+    return request.post('/acls/batch', data)
+  },
+  batchToggleACLs(data) {
+    return request.post('/acls/batch-toggle', data)
+  },
+  batchDeleteACLs(data) {
+    return request.delete('/acls/batch', { data })
+  }
+}
+
+// 高级监控API
+export const advancedSystemAPI = {
+  advancedStats() {
+    return request.get('/system/advanced-stats')
+  },
+  performanceHistory(hours = 24) {
+    return request.get(`/system/performance-history?hours=${hours}`)
+  },
+  detailedHealth() {
+    return request.get('/system/health-detailed')
+  }
+}
+
+// 配置备份API
+export const backupAPI = {
+  exportConfig() {
+    return request.get('/backup/export')
+  },
+  importConfig(data) {
+    return request.post('/backup/import', data)
+  },
+  getBackupStatus() {
+    return request.get('/backup/status')
   }
 }

@@ -27,11 +27,12 @@ class Peer(Base):
 class ACL(Base):
 	__tablename__ = 'acls'
 	id = Column(Integer, primary_key=True, autoincrement=True)
-	peer_id = Column(Integer, ForeignKey('peers.id'), nullable=False)
+	peer_id = Column(Integer, ForeignKey('peers.id'), nullable=False)  # 保持NOT NULL
 	action = Column(String, nullable=False)  # allow / deny
 	target = Column(String, nullable=False)  # IP 或 CIDR
 	port = Column(String, nullable=False)  # 端口或端口范围
 	protocol = Column(String, nullable=False)  # 协议类型
+	direction = Column(String, nullable=False, default='both')  # 方向：inbound, outbound, both
 	enabled = Column(Boolean, default=True, nullable=False)  # 是否启用
 
 class ServerKey(Base):

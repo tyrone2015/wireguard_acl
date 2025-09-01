@@ -87,6 +87,15 @@
               <el-descriptions-item label="网络 速率">
                 <div>上行: {{ (sysResources.network.bytes_sent_per_s / 1024).toFixed(1) }} KB/s · 下行: {{ (sysResources.network.bytes_recv_per_s / 1024).toFixed(1) }} KB/s</div>
               </el-descriptions-item>
+              <el-descriptions-item label="WireGuard 状态">
+                <el-tag :type="advancedStats.wireguard.status === 'up' ? 'success' : 'danger'">
+                  {{ advancedStats.wireguard.status === 'up' ? '运行中' : '未运行' }}
+                </el-tag>
+                <span style="margin-left: 10px;">连接节点: {{ advancedStats.wireguard.peers }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="数据库统计">
+                <div>节点: {{ advancedStats.database.total_peers }} ({{ advancedStats.database.active_peers }}活跃) · 规则: {{ advancedStats.database.total_acls }} ({{ advancedStats.database.enabled_acls }}启用)</div>
+              </el-descriptions-item>
             </el-descriptions>
           </div>
         </el-card>
@@ -134,7 +143,7 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { peerAPI, aclAPI, userAPI, systemAPI, systemStatsAPI, activitiesAPI } from '@/api'
+import { peerAPI, aclAPI, userAPI, systemAPI, systemStatsAPI, activitiesAPI, advancedSystemAPI } from '@/api'
 
 const stats = reactive({
   peerCount: 0,
@@ -155,6 +164,12 @@ const sysResources = reactive({
   memory: { total: 0, used: 0, percent: 0 },
   disk: { total: 0, used: 0, percent: 0 },
   network: { bytes_sent_per_s: 0, bytes_recv_per_s: 0 }
+})
+
+const advancedStats = reactive({
+  database: { total_peers: 0, active_peers: 0, total_acls: 0, enabled_acls: 0, recent_activities: 0 },
+  wireguard: { status: 'unknown', peers: 0, transfer: { rx: 0, tx: 0 } },
+  processes: { python_processes: [], total_python_processes: 0 }
 })
 
 let statsTimer = null
@@ -213,6 +228,18 @@ const loadSystemResources = async () => {
   }
 }
 
+const loadAdvancedStats = async () => {
+  try {
+    const res = await advancedSystemAPI.advancedStats()
+    const data = res.data || res
+    Object.assign(advancedStats.database, data.database || {})
+    Object.assign(advancedStats.wireguard, data.wireguard || {})
+    Object.assign(advancedStats.processes, data.processes || {})
+  } catch (error) {
+    console.error('获取高级统计失败:', error)
+  }
+}
+
 const getLoadColor = (load) => {
   if (load < 50) return '#67c23a'
   if (load < 80) return '#e6a23c'
@@ -227,7 +254,11 @@ onMounted(() => {
   loadStats()
   // 立即加载一次系统资源并启动轮询（每5秒）
   loadSystemResources()
-  statsTimer = setInterval(loadSystemResources, 5000)
+  loadAdvancedStats()
+  statsTimer = setInterval(() => {
+    loadSystemResources()
+    loadAdvancedStats()
+  }, 5000)
   // 加载最近活动并轮询（每5秒）
   loadRecentActivities()
   activitiesTimer = setInterval(loadRecentActivities, 5000)

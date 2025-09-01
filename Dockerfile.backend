@@ -22,7 +22,7 @@ ENV TZ=Asia/Shanghai
 # 再复制代码
 COPY ./app ./app
 # 复制启动脚本并赋予执行权限
-COPY ./run_backend.sh /app/run_backend.sh
+COPY ./bin/run_backend.sh /app/run_backend.sh
 RUN chmod +x /app/run_backend.sh
 
 # 启动 dnsmasq（用于处理来自 wg0 的 DNS 重定向请求）和 FastAPI 后端

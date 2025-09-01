@@ -3,7 +3,10 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from app.models import ACL, Peer, User
 from app.auth import get_current_user
 from app.activity import log_activity
+import logging
+
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # ACL 启用
@@ -70,6 +73,7 @@ def get_acls(current_user: User = Depends(get_current_user)):
 			"port": a.port,
 			# normalize empty protocol (means all protocols) to '*' for frontend display
 			"protocol": a.protocol or "*",
+			"direction": a.direction or "both",  # 添加方向字段
 			"enabled": a.enabled
 		} for a in acls
 	]
@@ -82,7 +86,7 @@ def validate_acl_target(target: str) -> bool:
 	except Exception:
 		return False
 
-# ACL 创建（POST /acls，兼容前端接口）
+# ACL 创建（POST /acls，兼容前端接口，支持全局规则和方向控制）
 @router.post("/acls")
 def create_acl_with_port(
 	peer_id: int = Body(...),
@@ -90,24 +94,39 @@ def create_acl_with_port(
 	target: str = Body(...),
 	port: str = Body(...),
 	protocol: str = Body(...),
+	direction: str = Body("both"),  # 添加方向参数，默认both
 	current_user: User = Depends(get_current_user)
 ):
 	if action not in ["allow", "deny"]:
 		raise HTTPException(status_code=400, detail="action 必须为 allow 或 deny")
 	if not validate_acl_target(target):
 		raise HTTPException(status_code=400, detail="target 格式非法")
+	if direction not in ["inbound", "outbound", "both"]:
+		raise HTTPException(status_code=400, detail="direction 必须为 inbound、outbound 或 both")
+	
 	from app.main import SessionLocal
 	session = SessionLocal()
-	# normalize "all" protocol values from frontend to empty string for storage
+	
+	# 处理全局规则：如果peer_id为None或-1，表示全局规则
+	if peer_id is None or peer_id == -1:
+		peer_id = -1  # 使用-1表示全局规则
+	else:
+		# 验证节点是否存在
+		peer = session.query(Peer).get(peer_id)
+		if not peer:
+			session.close()
+			raise HTTPException(status_code=400, detail="指定的节点不存在")
+	
+	# 标准化协议
 	if isinstance(protocol, str) and protocol.lower() in ("*", "all"):
 		protocol = ""
 
-	acl = session.query(ACL).filter_by(peer_id=peer_id, target=target, port=port, protocol=protocol).first()
+	acl = session.query(ACL).filter_by(peer_id=peer_id, target=target, port=port, protocol=protocol, direction=direction).first()
 	if acl:
 		acl.action = action
 		msg = "ACL updated"
 	else:
-		acl = ACL(peer_id=peer_id, action=action, target=target, port=port, protocol=protocol)
+		acl = ACL(peer_id=peer_id, action=action, target=target, port=port, protocol=protocol, direction=direction)
 		session.add(acl)
 		msg = "ACL created"
 	session.commit()
@@ -118,12 +137,14 @@ def create_acl_with_port(
 		msg += " (警告: WireGuard 同步失败)"
 	# 记录活动
 	try:
-		log_activity(f"{msg}: peer_id={peer_id} target={target} port={port}", type='success')
+		peer_info = "全局规则" if peer_id == -1 else f"peer_id={peer_id}"
+		direction_info = f"方向:{direction}"
+		log_activity(f"{msg}: {peer_info} target={target} port={port} {direction_info}", type='success')
 	except Exception:
 		pass
 	return {"msg": msg, "sync_success": sync_success}
 
-# ACL 创建（同一 Peer+target 冲突覆盖）
+# ACL 创建（同一 Peer+target 冲突覆盖，支持全局规则）
 @router.post("/acls/create")
 def create_acl_minimal(
 	peer_id: int = Body(...),
@@ -135,8 +156,20 @@ def create_acl_minimal(
 		raise HTTPException(status_code=400, detail="action 必须为 allow 或 deny")
 	if not validate_acl_target(target):
 		raise HTTPException(status_code=400, detail="target 格式非法")
+	
 	from app.main import SessionLocal
 	session = SessionLocal()
+	
+	# 处理全局规则
+	if peer_id is None or peer_id == -1:
+		peer_id = -1
+	else:
+		# 验证节点是否存在
+		peer = session.query(Peer).get(peer_id)
+		if not peer:
+			session.close()
+			raise HTTPException(status_code=400, detail="指定的节点不存在")
+	
 	acl = session.query(ACL).filter_by(peer_id=peer_id, target=target).first()
 	if acl:
 		acl.action = action
@@ -149,7 +182,8 @@ def create_acl_minimal(
 	session.close()
 	# 记录活动
 	try:
-		log_activity(f"{msg}: peer_id={peer_id} target={target}", type='success')
+		peer_info = "全局规则" if peer_id == -1 else f"peer_id={peer_id}"
+		log_activity(f"{msg}: {peer_info} target={target}", type='success')
 	except Exception:
 		pass
 	return {"msg": msg}
@@ -163,6 +197,7 @@ def edit_acl_api(
 	target: str = Body(None),
 	port: str = Body(None),
 	protocol: str = Body(None),
+	direction: str = Body(None),  # 添加方向参数
 	current_user: User = Depends(get_current_user)
 ):
 	from app.main import SessionLocal
@@ -171,14 +206,20 @@ def edit_acl_api(
 	if not acl:
 		session.close()
 		raise HTTPException(status_code=404, detail="ACL not found")
-	# allow changing associated peer
+	
+	# allow changing associated peer (including setting to global rule)
 	if peer_id is not None:
-		# validate peer exists
-		peer = session.query(Peer).get(peer_id)
-		if not peer:
-			session.close()
-			raise HTTPException(status_code=400, detail="peer_id 指定的节点不存在")
-		acl.peer_id = peer_id
+		if peer_id == -1:
+			# 设置为全局规则
+			acl.peer_id = -1
+		else:
+			# validate peer exists
+			peer = session.query(Peer).get(peer_id)
+			if not peer:
+				session.close()
+				raise HTTPException(status_code=400, detail="指定的节点不存在")
+			acl.peer_id = peer_id
+	
 	if action:
 		if action not in ["allow", "deny"]:
 			session.close()
@@ -196,6 +237,11 @@ def edit_acl_api(
 		if isinstance(protocol, str) and protocol.lower() in ("*", "all"):
 			protocol = ""
 		acl.protocol = protocol
+	if direction:
+		if direction not in ["inbound", "outbound", "both"]:
+			session.close()
+			raise HTTPException(status_code=400, detail="direction 必须为 inbound、outbound 或 both")
+		acl.direction = direction
 	session.commit()
 	session.close()
 	from app.sync import sync_acl_and_wireguard
@@ -257,6 +303,202 @@ def delete_peer_cascade(peer_id: int, current_user: User = Depends(get_current_u
 		msg = "Peer not found"
 	session.close()
 	return {"msg": msg}
+
+# 批量操作接口
+from typing import List
+from pydantic import BaseModel
+
+class BatchACLRequest(BaseModel):
+    acls: List[dict]
+
+@router.post("/acls/batch")
+def batch_create_acls(request: BatchACLRequest, current_user: User = Depends(get_current_user)):
+    """批量创建ACL规则"""
+    try:
+        logger.info(f"用户 {current_user.username} 尝试批量创建 {len(request.acls)} 个ACL")
+
+        results = []
+        success_count = 0
+        fail_count = 0
+
+        from app.main import SessionLocal
+        session = SessionLocal()
+
+        for i, acl_data in enumerate(request.acls):
+            try:
+                # 验证必需字段
+                required_fields = ['action', 'target']  # 移除peer_id的必需验证
+                for field in required_fields:
+                    if field not in acl_data:
+                        raise ValueError(f"缺少必需字段: {field}")
+
+                # 验证action
+                if acl_data['action'] not in ["allow", "deny"]:
+                    raise ValueError("action必须为allow或deny")
+
+                # 验证target
+                if not validate_acl_target(acl_data['target']):
+                    raise ValueError("target格式非法")
+
+                # 验证peer_id（如果提供的话）
+                peer_id = acl_data.get('peer_id')
+                if peer_id is not None:
+                    peer = session.query(Peer).get(peer_id)
+                    if not peer:
+                        raise ValueError("指定的节点不存在")
+
+                # 检查是否已存在相同规则
+                existing_acl = session.query(ACL).filter_by(
+                    peer_id=peer_id,
+                    target=acl_data['target'],
+                    port=acl_data.get('port', ''),
+                    protocol=acl_data.get('protocol', ''),
+                    direction=acl_data.get('direction', 'both')  # 添加direction到唯一性检查
+                ).first()
+
+                if existing_acl:
+                    existing_acl.action = acl_data['action']
+                    msg = "ACL updated"
+                else:
+                    # 标准化协议
+                    protocol = acl_data.get('protocol', '')
+                    if isinstance(protocol, str) and protocol.lower() in ("*", "all"):
+                        protocol = ""
+
+                    acl = ACL(
+                        peer_id=acl_data['peer_id'],
+                        action=acl_data['action'],
+                        target=acl_data['target'],
+                        port=acl_data.get('port', ''),
+                        protocol=protocol,
+                        direction=acl_data.get('direction', 'both')  # 添加direction字段
+                    )
+                    session.add(acl)
+                    msg = "ACL created"
+
+                results.append({
+                    "index": i,
+                    "success": True,
+                    "message": msg
+                })
+                success_count += 1
+
+            except Exception as e:
+                results.append({
+                    "index": i,
+                    "success": False,
+                    "error": str(e)
+                })
+                fail_count += 1
+
+        session.commit()
+        session.close()
+
+        # 同步WireGuard
+        from app.sync import sync_acl_and_wireguard
+        sync_success = sync_acl_and_wireguard()
+
+        logger.info(f"批量创建ACL完成: 成功{success_count}, 失败{fail_count}")
+
+        # 记录活动
+        try:
+            log_activity(f"批量创建防火墙规则: 成功{success_count}, 失败{fail_count}", type='success')
+        except Exception:
+            pass
+
+        return {
+            "msg": f"批量创建完成: 成功{success_count}, 失败{fail_count}",
+            "results": results,
+            "sync_success": sync_success
+        }
+
+    except Exception as e:
+        logger.error(f"批量创建ACL时发生错误: {str(e)}")
+        raise HTTPException(status_code=500, detail="批量创建失败")
+
+
+@router.post("/acls/batch-toggle")
+def batch_toggle_acls(acl_ids: List[int] = Body(...), current_user: User = Depends(get_current_user)):
+    """批量启用/禁用ACL规则"""
+    try:
+        logger.info(f"用户 {current_user.username} 尝试批量操作 {len(acl_ids)} 个ACL")
+
+        from app.main import SessionLocal
+        session = SessionLocal()
+
+        updated_count = 0
+        for acl_id in acl_ids:
+            acl = session.query(ACL).get(acl_id)
+            if acl:
+                acl.enabled = not acl.enabled
+                updated_count += 1
+
+        session.commit()
+        session.close()
+
+        # 同步WireGuard
+        from app.sync import sync_acl_and_wireguard
+        sync_success = sync_acl_and_wireguard()
+
+        logger.info(f"批量切换ACL状态完成: 更新{updated_count}个规则")
+
+        # 记录活动
+        try:
+            log_activity(f"批量切换防火墙规则状态: 更新{updated_count}个", type='info')
+        except Exception:
+            pass
+
+        return {
+            "msg": f"批量操作完成: 更新{updated_count}个规则",
+            "updated_count": updated_count,
+            "sync_success": sync_success
+        }
+
+    except Exception as e:
+        logger.error(f"批量切换ACL状态时发生错误: {str(e)}")
+        raise HTTPException(status_code=500, detail="批量操作失败")
+
+
+@router.delete("/acls/batch")
+def batch_delete_acls(acl_ids: List[int] = Body(...), current_user: User = Depends(get_current_user)):
+    """批量删除ACL规则"""
+    try:
+        logger.info(f"用户 {current_user.username} 尝试批量删除 {len(acl_ids)} 个ACL")
+
+        from app.main import SessionLocal
+        session = SessionLocal()
+
+        deleted_count = 0
+        for acl_id in acl_ids:
+            acl = session.query(ACL).get(acl_id)
+            if acl:
+                session.delete(acl)
+                deleted_count += 1
+
+        session.commit()
+        session.close()
+
+        # 同步WireGuard
+        from app.sync import sync_acl_and_wireguard
+        sync_success = sync_acl_and_wireguard()
+
+        logger.info(f"批量删除ACL完成: 删除{deleted_count}个规则")
+
+        # 记录活动
+        try:
+            log_activity(f"批量删除防火墙规则: 删除{deleted_count}个", type='warning')
+        except Exception:
+            pass
+
+        return {
+            "msg": f"批量删除完成: 删除{deleted_count}个规则",
+            "deleted_count": deleted_count,
+            "sync_success": sync_success
+        }
+
+    except Exception as e:
+        logger.error(f"批量删除ACL时发生错误: {str(e)}")
+        raise HTTPException(status_code=500, detail="批量删除失败")
 
 # NOTE: ACL -> iptables 的实现已统一放在 app.sync.apply_acl_to_iptables
 # 以避免重复和冲突，这里不再保留旧实现。

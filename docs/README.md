@@ -4,32 +4,6 @@
 
 This project is a web management system designed for operators and network administrators to centrally manage WireGuard peers and peer-based access control rules (ACLs). The goal is to simplify peer CRUD, key management, connection monitoring, and access policy configuration through a visual interface, improving network management efficiency and auditability.
 
-## 项目结构 / Project Structure
-
-```
-wireguard_acl/
-├── app/                     # 后端应用 (Backend Application)
-├── frontend/                # 前端应用 (Frontend Application)
-├── tests/                   # 单元测试 (Unit Tests)
-├── docs/                    # 项目文档 (Documentation)
-│   ├── README.md           # 项目说明
-│   ├── API_DOCUMENTATION.md # API文档
-│   ├── guides/             # 使用指南
-│   └── implementation/     # 实现文档
-├── scripts/                 # 脚本工具 (Scripts)
-│   ├── demo/               # 演示脚本
-│   ├── test/               # 测试脚本
-│   └── migration/          # 数据库迁移脚本
-├── config/                  # 配置文件 (Configuration)
-│   ├── docker-compose.yml
-│   ├── Dockerfile.backend
-│   └── requirements.txt
-├── bin/                     # 可执行脚本 (Executables)
-│   ├── run_backend.sh
-│   └── run_dev.sh
-└── data/                    # 数据目录 (Data)
-```
-
 ## 开发与维护说明 / Development & Maintenance
 当前项目在开发过程中大量使用了 VS Code 的 GitHub Copilot 自动完成功能以提升开发效率。代码中可能包含 Copilot 生成的样板代码或需要人工复审的部分。我会在有时间时逐步审查并修复项目中存在的问题、补充测试覆盖并改进文档与注释。
 
@@ -144,44 +118,19 @@ docker-compose up --build -d
 ## 详细使用指南 / Detailed usage guides
 
 ### ACL方向控制使用指南
-请参考 [`docs/guides/ACL_DIRECTION_GUIDE.md`](docs/guides/ACL_DIRECTION_GUIDE.md) 获取关于ACL方向控制的详细使用说明，包括：
+请参考 [`ACL_DIRECTION_GUIDE.md`](ACL_DIRECTION_GUIDE.md) 获取关于ACL方向控制的详细使用说明，包括：
 - 入口方向、出口方向和双向规则的区别
 - 实际应用场景和配置示例
 - 前端界面操作步骤
 - 故障排除和最佳实践
 
 ### 全局ACL规则使用指南
-请参考 [`docs/guides/GLOBAL_ACL_GUIDE.md`](docs/guides/GLOBAL_ACL_GUIDE.md) 获取关于全局ACL规则的详细使用说明，包括：
+请参考 [`GLOBAL_ACL_GUIDE.md`](GLOBAL_ACL_GUIDE.md) 获取关于全局ACL规则的详细使用说明，包括：
 - 全局规则的特性和适用范围
 - 创建和管理全局规则的方法
 - 与节点特定规则的优先级关系
 - 安全策略和最佳实践
 
 ### API文档
-请参考 [`docs/API_DOCUMENTATION.md`](docs/API_DOCUMENTATION.md) 获取完整的API接口文档。
-
-### 实现文档
-- [`docs/implementation/ACL_DIRECTION_IMPLEMENTATION.md`](docs/implementation/ACL_DIRECTION_IMPLEMENTATION.md) - ACL方向控制实现详情
-- [`docs/implementation/GLOBAL_ACL_IMPLEMENTATION.md`](docs/implementation/GLOBAL_ACL_IMPLEMENTATION.md) - 全局ACL规则实现详情
-- [`docs/guides/IMPLEMENTATION_SUMMARY.md`](docs/guides/IMPLEMENTATION_SUMMARY.md) - 完整实现总结
-
-### 项目结构说明
-请参考 [`docs/PROJECT_STRUCTURE.md`](docs/PROJECT_STRUCTURE.md) 获取详细的项目文件组织说明。
-
-## 开发与脚本工具 / Development & Scripts
-
-### 脚本工具 / Scripts
-- `scripts/demo/` - 演示脚本，用于展示功能
-- `scripts/test/` - 测试和验证脚本
-- `scripts/migration/` - 数据库迁移脚本
-- `scripts/final_validation.py` - 最终功能验证脚本
-
-### 快速启动脚本 / Quick Start Scripts
-- `bin/run_backend.sh` - 启动后端服务
-- `bin/run_dev.sh` - 开发环境启动脚本
-
-### 配置文件 / Configuration
-- `config/docker-compose.yml` - Docker Compose配置
-- `config/Dockerfile.backend` - 后端Docker镜像配置
-- `config/requirements.txt` - Python依赖配置
+请参考 [`API_DOCUMENTATION.md`](API_DOCUMENTATION.md) 获取完整的API接口文档。
 

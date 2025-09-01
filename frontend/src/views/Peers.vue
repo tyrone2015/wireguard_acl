@@ -1,4 +1,4 @@
-import { peerAPI } from '@/api/index'
+import { peerAPI, batchAPI } from '@/api'
 <template>
   <div class="peers">
     <div class="page-header">
@@ -26,6 +26,15 @@ import { peerAPI } from '@/api/index'
             <el-option label="禁用" value="disabled" />
           </el-select>
         </el-form-item>
+        <!-- 批量操作按钮 -->
+        <el-form-item v-if="selectedPeers.length > 0">
+          <el-button type="danger" @click="batchDeletePeers" :loading="batchDeleting">
+            批量删除 ({{ selectedPeers.length }})
+          </el-button>
+          <el-button type="warning" @click="batchTogglePeers" :loading="batchToggling">
+            批量切换状态 ({{ selectedPeers.length }})
+          </el-button>
+        </el-form-item>
       </el-form>
     </el-card>
     
@@ -36,7 +45,9 @@ import { peerAPI } from '@/api/index'
         :data="filteredPeers" 
         stripe
         style="width: 100%"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column type="selection" width="55" />
         <el-table-column prop="remark" label="名称" />
         <el-table-column prop="public_key" label="公钥" show-overflow-tooltip />
         <el-table-column prop="allowed_ips" label="允许的 IP" />
@@ -243,6 +254,9 @@ const formRef = ref()
 const peers = ref([])
 const generatedPrivateKey = ref('')
 const qrCodeImageUrl = ref('')
+const selectedPeers = ref([])
+const batchDeleting = ref(false)
+const batchToggling = ref(false)
 
 const filterForm = reactive({
   search: '',
@@ -428,11 +442,8 @@ const submitForm = () => {
 
 const togglePeer = async (peer) => {
   try {
-    await peerAPI.updatePeer(peer.id, {
-      ...peer,
-      status: !peer.status
-    })
-  ElMessage.success(`节点 ${peer.status ? '禁用' : '启用'} 成功`)
+    const response = await peerAPI.togglePeer(peer.id)
+    ElMessage.success(`节点 ${response.status ? '启用' : '禁用'} 成功`)
     loadPeers()
   } catch (error) {
     console.error('切换节点状态失败:', error)
@@ -465,6 +476,54 @@ const handleFilter = () => {
 
 const formatDate = (dateString) => {
   return new Date(dateString).toLocaleString('zh-CN')
+}
+
+const handleSelectionChange = (selection) => {
+  selectedPeers.value = selection
+}
+
+const batchDeletePeers = async () => {
+  if (selectedPeers.value.length === 0) return
+
+  await ElMessageBox.confirm(
+    `确定要删除选中的 ${selectedPeers.value.length} 个节点吗？此操作不可恢复。`,
+    '批量删除确认',
+    {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }
+  ).then(async () => {
+    batchDeleting.value = true
+    try {
+      const peerIds = selectedPeers.value.map(peer => peer.id)
+      const response = await batchAPI.batchDeletePeers({ peer_ids: peerIds })
+      ElMessage.success(response.msg)
+      selectedPeers.value = []
+      loadPeers()
+    } catch (error) {
+      console.error('批量删除节点失败:', error)
+    } finally {
+      batchDeleting.value = false
+    }
+  })
+}
+
+const batchTogglePeers = async () => {
+  if (selectedPeers.value.length === 0) return
+
+  batchToggling.value = true
+  try {
+    const peerIds = selectedPeers.value.map(peer => peer.id)
+    const response = await batchAPI.batchTogglePeers({ peer_ids: peerIds })
+    ElMessage.success(response.msg)
+    selectedPeers.value = []
+    loadPeers()
+  } catch (error) {
+    console.error('批量切换节点状态失败:', error)
+  } finally {
+    batchToggling.value = false
+  }
 }
 
 onMounted(() => {

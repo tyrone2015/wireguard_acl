@@ -1,4 +1,3 @@
-
 import os
 import subprocess
 from sqlalchemy.orm import sessionmaker
@@ -159,38 +158,91 @@ def apply_acl_to_iptables(acls):
 			continue
 		if not getattr(acl, 'enabled', True):
 			continue
-		peer_ip = peer_map.get(acl.peer_id)
-		if not peer_ip:
-			print(f"[日志] 跳过 ACL(id={acl.id}), 未找到对应 Peer IP")
-			continue
+		
+		# 处理全局规则（peer_id为-1）和特定节点规则
+		if acl.peer_id == -1:
+			# 全局规则：为所有活跃节点应用
+			target_peers = session.query(Peer).filter_by(status=True).all()
+			peer_ips = [p.peer_ip for p in target_peers if p.peer_ip]
+		else:
+			# 特定节点规则
+			peer_ip = peer_map.get(acl.peer_id)
+			if not peer_ip:
+				print(f"[日志] 跳过 ACL(id={acl.id}), 未找到对应 Peer IP")
+				continue
+			peer_ips = [peer_ip]
+		
+		# 为每个目标节点生成规则
+		for peer_ip in peer_ips:
+			direction = getattr(acl, 'direction', 'both') or 'both'
+			
+			target = acl.target
+			port = getattr(acl, 'port', None) or ""
+			protocol = getattr(acl, 'protocol', None) or ""
+			# normalize '*' or 'all' to empty -> means all protocols (no -p)
+			if isinstance(protocol, str) and protocol.strip() in ("*", "all"):
+				protocol = ""
 
-		target = acl.target
-		port = getattr(acl, 'port', None) or ""
-		protocol = getattr(acl, 'protocol', None) or ""
-		# normalize '*' or 'all' to empty -> means all protocols (no -p)
-		if isinstance(protocol, str) and protocol.strip() in ("*", "all"):
-			protocol = ""
+			proto_opt = f"-p {protocol.lower()}" if protocol else ""
+			port_opt = ""
+			if port and port != "*":
+				if "-" in port:
+					start, end = port.split('-', 1)
+					port_opt = f"--dport {start}:{end}"
+				else:
+					port_opt = f"--dport {port}"
 
-		proto_opt = f"-p {protocol.lower()}" if protocol else ""
-		port_opt = ""
-		if port and port != "*":
-			if "-" in port:
-				start, end = port.split('-', 1)
-				port_opt = f"--dport {start}:{end}"
-			else:
-				port_opt = f"--dport {port}"
+			# 根据方向生成不同的iptables规则
+			if direction == 'inbound':
+				# 入口方向：从外部进入WireGuard网络的流量
+				base = f"-d {peer_ip} -s {target} -i {iface} -o {WG_INTERFACE}"
+				if port_opt:
+					# 对于入口流量，使用--dport匹配目标端口
+					port_opt = port_opt.replace('--dport', '--dport')
+			elif direction == 'outbound':
+				# 出口方向：从WireGuard网络出去的流量
+				base = f"-s {peer_ip} -d {target} -i {WG_INTERFACE} -o {iface}"
+				if port_opt:
+					# 对于出口流量，使用--dport匹配目标端口
+					port_opt = port_opt.replace('--dport', '--dport')
+			else:  # both
+				# 双向流量：分别处理入口和出口
+				# 入口方向
+				base_in = f"-d {peer_ip} -s {target} -i {iface} -o {WG_INTERFACE}"
+				# 出口方向
+				base_out = f"-s {peer_ip} -d {target} -i {WG_INTERFACE} -o {iface}"
+				
+				if acl.action == 'allow':
+					# 入口规则
+					cmd_in = f"iptables -A WG_ACL {base_in} {proto_opt} {port_opt} -j ACCEPT"
+					post_up_cmds.append(cmd_in.strip())
+					post_down_cmds.append(f"iptables -D WG_ACL {base_in} {proto_opt} {port_opt} -j ACCEPT 2>/dev/null || true")
+					
+					# 出口规则
+					cmd_out = f"iptables -A WG_ACL {base_out} {proto_opt} {port_opt} -j ACCEPT"
+					post_up_cmds.append(cmd_out.strip())
+					post_down_cmds.append(f"iptables -D WG_ACL {base_out} {proto_opt} {port_opt} -j ACCEPT 2>/dev/null || true")
+				else:  # deny
+					# 入口规则
+					cmd_in = f"iptables -A WG_ACL {base_in} {proto_opt} {port_opt} -j DROP"
+					post_up_cmds.append(cmd_in.strip())
+					post_down_cmds.append(f"iptables -D WG_ACL {base_in} {proto_opt} {port_opt} -j DROP 2>/dev/null || true")
+					
+					# 出口规则
+					cmd_out = f"iptables -A WG_ACL {base_out} {proto_opt} {port_opt} -j DROP"
+					post_up_cmds.append(cmd_out.strip())
+					post_down_cmds.append(f"iptables -D WG_ACL {base_out} {proto_opt} {port_opt} -j DROP 2>/dev/null || true")
+				continue
 
-		base = f"-s {peer_ip} -d {target} -i {WG_INTERFACE} -o {iface}"
-
-		if acl.action == 'allow':
-			cmd = f"iptables -A WG_ACL {base} {proto_opt} {port_opt} -j ACCEPT"
-			post_up_cmds.append(cmd.strip())
-			# 对应删除命令（尽量容错）
-			post_down_cmds.append(f"iptables -D WG_ACL {base} {proto_opt} {port_opt} -j ACCEPT 2>/dev/null || true")
-		else:  # deny
-			cmd = f"iptables -A WG_ACL {base} {proto_opt} {port_opt} -j DROP"
-			post_up_cmds.append(cmd.strip())
-			post_down_cmds.append(f"iptables -D WG_ACL {base} {proto_opt} {port_opt} -j DROP 2>/dev/null || true")
+			if acl.action == 'allow':
+				cmd = f"iptables -A WG_ACL {base} {proto_opt} {port_opt} -j ACCEPT"
+				post_up_cmds.append(cmd.strip())
+				# 对应删除命令（尽量容错）
+				post_down_cmds.append(f"iptables -D WG_ACL {base} {proto_opt} {port_opt} -j ACCEPT 2>/dev/null || true")
+			else:  # deny
+				cmd = f"iptables -A WG_ACL {base} {proto_opt} {port_opt} -j DROP"
+				post_up_cmds.append(cmd.strip())
+				post_down_cmds.append(f"iptables -D WG_ACL {base} {proto_opt} {port_opt} -j DROP 2>/dev/null || true")
 
 	# 5) 链末默认 DROP，确保未匹配的流量被拒绝
 	post_up_cmds.append("iptables -A WG_ACL -j DROP")

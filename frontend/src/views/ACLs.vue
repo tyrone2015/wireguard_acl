@@ -25,6 +25,15 @@
             <el-option label="拒绝" value="deny" />
           </el-select>
         </el-form-item>
+        <!-- 批量操作按钮 -->
+        <el-form-item v-if="selectedACLs.length > 0">
+          <el-button type="danger" @click="batchDeleteACLs" :loading="batchDeleting">
+            批量删除 ({{ selectedACLs.length }})
+          </el-button>
+          <el-button type="warning" @click="batchToggleACLs" :loading="batchToggling">
+            批量切换状态 ({{ selectedACLs.length }})
+          </el-button>
+        </el-form-item>
       </el-form>
     </el-card>
     
@@ -35,7 +44,9 @@
         :data="filteredACLs" 
         stripe
         style="width: 100%"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column type="selection" width="55" />
           <el-table-column type="index" label="序号" width="70" />
         <el-table-column label="节点" width="180">
           <template #default="{ row }">
@@ -47,6 +58,13 @@
         <el-table-column label="协议" width="80">
           <template #default="{ row }">
             {{ row.protocol === '*' ? '所有' : row.protocol }}
+          </template>
+        </el-table-column>
+        <el-table-column label="方向" width="100">
+          <template #default="{ row }">
+            <el-tag :type="getDirectionType(row.direction)">
+              {{ getDirectionText(row.direction) }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="动作" width="100">
@@ -93,7 +111,8 @@
         label-width="100px"
       >
         <el-form-item label="节点" prop="peer_id">
-          <el-select v-model="aclForm.peer_id" placeholder="请选择节点" style="width: 100%">
+          <el-select v-model="aclForm.peer_id" placeholder="请选择节点（可选，全局规则留空）" clearable style="width: 100%">
+            <el-option label="全局规则（所有节点）" :value="-1" />
             <el-option
               v-for="peer in peerOptions"
               :key="peer.id"
@@ -101,6 +120,7 @@
               :value="peer.id"
             />
           </el-select>
+          <div class="form-tip">选择特定节点或选择"全局规则"（适用于所有节点）</div>
         </el-form-item>
         
         <el-form-item label="目标 IP" prop="target">
@@ -121,6 +141,15 @@
             <el-option label="UDP" value="UDP" />
             <el-option label="ICMP" value="ICMP" />
           </el-select>
+        </el-form-item>
+        
+        <el-form-item label="方向" prop="direction">
+          <el-select v-model="aclForm.direction" placeholder="请选择方向" style="width: 100%">
+            <el-option label="入口方向" value="inbound" />
+            <el-option label="出口方向" value="outbound" />
+            <el-option label="双向" value="both" />
+          </el-select>
+          <div class="form-tip">入口方向：从外部网络进入WireGuard网络的流量<br>出口方向：从WireGuard网络出去的流量<br>双向：同时控制入口和出口流量</div>
         </el-form-item>
         
         <el-form-item label="动作" prop="action">
@@ -145,7 +174,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import { aclAPI, peerAPI } from '@/api'
+import { aclAPI, peerAPI, batchAPI } from '@/api'
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -153,6 +182,9 @@ const isEdit = ref(false)
 const submitting = ref(false)
 const formRef = ref()
 const acls = ref([])
+const selectedACLs = ref([])
+const batchDeleting = ref(false)
+const batchToggling = ref(false)
 
 const filterForm = reactive({
   search: '',
@@ -165,12 +197,13 @@ const aclForm = reactive({
   action: 'allow',
   target: '',
   port: '',
-  protocol: '*'
+  protocol: '*',
+  direction: 'both'  // 添加方向字段，默认双向
 })
 
 const formRules = {
   peer_id: [
-    { required: true, message: '请选择 节点', trigger: 'change' }
+    // 节点现在是可选的，不再是必填项
   ],
   action: [
     { required: true, message: '请选择动作', trigger: 'change' }
@@ -183,6 +216,9 @@ const formRules = {
   ],
   protocol: [
     { required: true, message: '请选择协议', trigger: 'change' }
+  ],
+  direction: [
+    { required: true, message: '请选择方向', trigger: 'change' }
   ]
 }
 const peerOptions = ref([])
@@ -202,9 +238,28 @@ const loadPeers = async () => {
 }
 
 const getPeerName = (peer_id) => {
+  if (peer_id === -1) return "全局规则"
   const p = peerMap.value[peer_id]
   if (!p) return peer_id
   return p.remark || p.peer_ip || p.id
+}
+
+const getDirectionText = (direction) => {
+  switch (direction) {
+    case 'inbound': return '入口'
+    case 'outbound': return '出口'
+    case 'both': return '双向'
+    default: return direction || '双向'
+  }
+}
+
+const getDirectionType = (direction) => {
+  switch (direction) {
+    case 'inbound': return 'primary'
+    case 'outbound': return 'warning'
+    case 'both': return 'info'
+    default: return 'info'
+  }
 }
 
 const filteredACLs = computed(() => {
@@ -249,16 +304,18 @@ const showEditDialog = (acl) => {
   aclForm.port = acl.port || ''
   // backend returns '*' for all-protocols, map to '*' for select
   aclForm.protocol = (acl.protocol === '*' || !acl.protocol) ? '*' : acl.protocol || ''
+  aclForm.direction = acl.direction || 'both'  // 添加方向字段
 }
 
 const resetForm = () => {
   Object.assign(aclForm, {
     id: null,
-    peer_id: null,
+    peer_id: null,  // 初始为null，让用户选择
     action: 'allow',
     target: '',
-  port: '',
-  protocol: '*'
+    port: '',
+    protocol: '*',
+    direction: 'both'  // 添加方向字段重置
   })
   formRef.value?.resetFields()
 }
@@ -270,15 +327,22 @@ const submitForm = () => {
     submitting.value = true
     try {
       let response
+      // 准备提交的数据
+      const submitData = { ...aclForm }
+      // 如果peer_id为null，设置为-1表示全局规则
+      if (submitData.peer_id === null || submitData.peer_id === '') {
+        submitData.peer_id = -1
+      }
+      
       if (isEdit.value) {
-        response = await aclAPI.updateACL(aclForm.id, aclForm)
+        response = await aclAPI.updateACL(aclForm.id, submitData)
         if (response.sync_success === false) {
           ElMessage.warning(response.msg || '防火墙 规则更新成功，但 WireGuard 同步失败')
         } else {
           ElMessage.success('防火墙 规则更新成功')
         }
       } else {
-        response = await aclAPI.createACL(aclForm)
+        response = await aclAPI.createACL(submitData)
         if (response.sync_success === false) {
           ElMessage.warning(response.msg || '防火墙 规则创建成功，但 WireGuard 同步失败')
         } else {
@@ -334,6 +398,56 @@ const toggleACLStatus = async (acl) => {
 
 const handleFilter = () => {
   // 过滤逻辑在 computed 中处理
+}
+
+const handleSelectionChange = (selection) => {
+  selectedACLs.value = selection
+}
+
+// 批量删除选中的 ACLs
+const batchDeleteACLs = async () => {
+  if (selectedACLs.value.length === 0) return
+
+  await ElMessageBox.confirm(
+    `确定要删除选中的 ${selectedACLs.value.length} 个防火墙规则吗？此操作不可恢复。`,
+    '批量删除确认',
+    {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }
+  ).then(async () => {
+    batchDeleting.value = true
+    try {
+      const aclIds = selectedACLs.value.map(acl => acl.id)
+      const response = await batchAPI.batchDeleteACLs({ acl_ids: aclIds })
+      ElMessage.success(response.msg)
+      selectedACLs.value = []
+      loadACLs()
+    } catch (error) {
+      console.error('批量删除ACL失败:', error)
+    } finally {
+      batchDeleting.value = false
+    }
+  })
+}
+
+// 批量切换选中 ACLs 的状态
+const batchToggleACLs = async () => {
+  if (selectedACLs.value.length === 0) return
+
+  batchToggling.value = true
+  try {
+    const aclIds = selectedACLs.value.map(acl => acl.id)
+    const response = await batchAPI.batchToggleACLs({ acl_ids: aclIds })
+    ElMessage.success(response.msg)
+    selectedACLs.value = []
+    loadACLs()
+  } catch (error) {
+    console.error('批量切换ACL状态失败:', error)
+  } finally {
+    batchToggling.value = false
+  }
 }
 
 onMounted(() => {

@@ -8,6 +8,8 @@ python-jose
 passlib
 python-multipart
 pytest
+pytest-asyncio
+httpx
 qrcode
 Pillow
 
