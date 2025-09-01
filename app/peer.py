@@ -42,8 +42,9 @@ def get_available_peer_ip(current_user: User = Depends(get_current_user)):
 def create_peer_api(
 	remark: str = Body(''),
 	status: bool = Body(True),
-	endpoint: str = Body(''),
+	endpoint: str = Body(''),  # 保留参数以保持兼容性，但不再使用
 	allowed_ips: str = Body(""),
+	client_allowed_ips: str = Body("0.0.0.0/0"),
 	peer_ip: str = Body(''),
 	keepalive: int = Body(30),
 	current_user: User = Depends(get_current_user)
@@ -76,10 +77,10 @@ def create_peer_api(
             public_key=public_key,
             private_key=enc_private_key,
             allowed_ips=allowed_ips,
+            client_allowed_ips=client_allowed_ips,
             remark=remark,
             status=status,
             peer_ip=assigned_peer_ip,
-            endpoint=endpoint,
             keepalive=min(max(keepalive, 30), 120),
             preshared_key=preshared_key
         )
@@ -156,11 +157,11 @@ def get_peers(current_user: User = Depends(get_current_user)):
 			"id": p.id,
 			"public_key": p.public_key,
 			"allowed_ips": p.allowed_ips,
+			"client_allowed_ips": p.client_allowed_ips,
 			"remark": p.remark,
 			"status": p.status,
 			"peer_ip": p.peer_ip,
 			"created_at": p.created_at,
-			"endpoint": p.endpoint,
 			"keepalive": p.keepalive
 		} for p in peers
 	]
@@ -210,9 +211,10 @@ def validate_allowed_ips(allowed_ips: str) -> bool:
 def edit_peer_api(
 	peer_id: int,
 	allowed_ips: str = Body(None),
+	client_allowed_ips: str = Body(None),
 	remark: str = Body(None),
 	status: bool = Body(None),
-	endpoint: str = Body(None),
+	endpoint: str = Body(None),  # 保留参数以保持兼容性，但不再使用
 	keepalive: int = Body(None),
 	current_user: User = Depends(get_current_user)
 ):
@@ -227,12 +229,15 @@ def edit_peer_api(
 			session.close()
 			raise HTTPException(status_code=400, detail="AllowedIPs 格式非法")
 		peer.allowed_ips = allowed_ips
+	if client_allowed_ips is not None:
+		if not validate_allowed_ips(client_allowed_ips):
+			session.close()
+			raise HTTPException(status_code=400, detail="Client AllowedIPs 格式非法")
+		peer.client_allowed_ips = client_allowed_ips
 	if remark is not None:
 		peer.remark = remark
 	if status is not None:
 		peer.status = status
-	if endpoint is not None:
-		peer.endpoint = endpoint
 	if keepalive is not None:
 		peer.keepalive = min(max(keepalive, 30), 120)
 	session.commit()
@@ -276,8 +281,20 @@ def toggle_peer_status(peer_id: int, current_user: User = Depends(get_current_us
 # 生成客户端配置内容
 def generate_client_config(peer, server_public_key=None):
 	from app.peer import decrypt_private_key
+	from app.main import SessionLocal
+	
 	private_key = decrypt_private_key(peer.private_key)
-	config = f"""[Interface]\nPrivateKey = {private_key}\nListenPort = 51820\nAddress = {peer.peer_ip}/32\nDNS = 10.0.0.1\n\n[Peer]\nPublicKey = {server_public_key or 'SERVER_PUBLIC_KEY'}\nPresharedKey = {peer.preshared_key}\nAllowedIPs = 0.0.0.0/0\nEndpoint = {peer.endpoint or ''}\nPersistentKeepalive = {peer.keepalive}\n"""
+	
+	# 从数据库获取全局端点设置
+	session = SessionLocal()
+	try:
+		from app.models import SystemSetting
+		setting = session.query(SystemSetting).filter_by(key='global_endpoint').first()
+		global_endpoint = setting.value if setting else ''
+	finally:
+		session.close()
+	
+	config = f"""[Interface]\nPrivateKey = {private_key}\nListenPort = 51820\nAddress = {peer.peer_ip}/32\nDNS = 10.0.0.1\n\n[Peer]\nPublicKey = {server_public_key or 'SERVER_PUBLIC_KEY'}\nPresharedKey = {peer.preshared_key}\nAllowedIPs = {peer.client_allowed_ips}\nEndpoint = {global_endpoint}\nPersistentKeepalive = {peer.keepalive}\n"""
 	return config
 
 # 下载客户端配置文件接口
@@ -378,10 +395,10 @@ def batch_create_peers(request: BatchPeerRequest, current_user: User = Depends(g
                     public_key=public_key,
                     private_key=enc_private_key,
                     allowed_ips=peer_data.get('allowed_ips', ''),
+                    client_allowed_ips=peer_data.get('client_allowed_ips', '0.0.0.0/0'),
                     remark=peer_data['remark'],
                     status=peer_data.get('status', True),
                     peer_ip=assigned_peer_ip,
-                    endpoint=peer_data.get('endpoint', ''),
                     keepalive=min(max(peer_data.get('keepalive', 30), 30), 120),
                     preshared_key=preshared_key
                 )

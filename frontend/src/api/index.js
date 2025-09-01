@@ -193,3 +193,27 @@ export const backupAPI = {
     return request.get('/backup/status')
   }
 }
+
+// 系统设置 API
+export const systemSettingsAPI = {
+  // 获取系统设置
+  getSettings() {
+    return request.get('/system/settings')
+  },
+  // 更新系统设置
+  updateSettings(data) {
+    return request.put('/system/settings', data)
+  },
+  // 获取单个设置
+  getSetting(key) {
+    return request.get(`/system/settings/${key}`)
+  },
+  // 更新单个设置
+  updateSetting(key, value) {
+    return request.put(`/system/settings/${key}`, value, {
+      headers: {
+        'Content-Type': 'text/plain'
+      }
+    })
+  }
+}

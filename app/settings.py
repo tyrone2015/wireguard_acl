@@ -2,7 +2,10 @@ import os
 import ipaddress
 
 # 默认 Peer IP 段，可通过环境变量或配置文件覆盖
-PEER_IP_CIDR = os.environ.get('WG_PEER_IP_CIDR', '10.0.0.0/24')
+PEER_IP_CIDR = os.environ.get('WG_PEER_IP_CIDR', '192.168.198.0/24')
+
+# 全局 WireGuard 端点，可通过环境变量或配置文件覆盖
+WG_GLOBAL_ENDPOINT = os.environ.get('WG_GLOBAL_ENDPOINT', '')
 
 # 获取所有可用 IP
 def get_available_peer_ips():

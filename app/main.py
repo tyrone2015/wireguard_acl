@@ -14,6 +14,7 @@ from cryptography.fernet import Fernet
 from app.sync import sync_acl_and_wireguard
 from app.system_status import router as system_status_router
 from app.activity import router as activity_router
+from app.system_settings import router as system_settings_router
 app = FastAPI()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -81,3 +82,4 @@ app.include_router(auth_router, prefix="")
 app.include_router(system_status_router, prefix="")
 app.include_router(activity_router, prefix="")
 app.include_router(backup_router, prefix="")
+app.include_router(system_settings_router, prefix="")

@@ -15,11 +15,11 @@ class Peer(Base):
 	id = Column(Integer, primary_key=True, autoincrement=True)
 	public_key = Column(String, nullable=False)
 	private_key = Column(String, nullable=False)
-	allowed_ips = Column(String, nullable=False)
+	allowed_ips = Column(String, nullable=False)  # 服务端AllowedIPs
+	client_allowed_ips = Column(String, nullable=False, default='0.0.0.0/0')  # 客户端AllowedIPs
 	remark = Column(String)
 	status = Column(Boolean, default=True)
 	peer_ip = Column(String, nullable=False, unique=True)
-	endpoint = Column(String)
 	keepalive = Column(Integer, default=30)  # 默认 30 秒，最大 120 秒
 	preshared_key = Column(String, nullable=True)  # 新增字段
 	created_at = Column(DateTime, default=datetime.utcnow)
@@ -56,3 +56,12 @@ class Activity(Base):
 	type = Column(String, nullable=False)
 	message = Column(String, nullable=False)
 	created_at = Column(DateTime, default=datetime.utcnow)
+
+class SystemSetting(Base):
+	__tablename__ = 'system_settings'
+	id = Column(Integer, primary_key=True, autoincrement=True)
+	key = Column(String, unique=True, nullable=False)
+	value = Column(String, nullable=False)
+	description = Column(String)
+	created_at = Column(DateTime, default=datetime.utcnow)
+	updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

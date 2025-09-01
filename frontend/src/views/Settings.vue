@@ -3,6 +3,16 @@
     <h2>系统设置</h2>
     <el-card>
       <el-form label-width="120px">
+        <el-form-item label="全局端点" prop="globalEndpoint">
+          <el-input
+            v-model="globalEndpoint"
+            placeholder="例如: example.com:51820"
+            @blur="updateGlobalEndpoint"
+          />
+          <div class="form-tip">
+            WireGuard 服务器的全局端点地址，所有客户端配置都将使用此端点
+          </div>
+        </el-form-item>
         <el-form-item label="主题切换">
           <el-switch
             v-model="isDark"
@@ -45,7 +55,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { systemAPI, backupAPI } from '@/api'
+import { systemAPI, backupAPI, systemSettingsAPI } from '@/api'
 
 const isDark = ref(false)
 const syncing = ref(false)
@@ -54,10 +64,20 @@ const healthStatus = ref(true)
 const exporting = ref(false)
 const importing = ref(false)
 const checkingBackup = ref(false)
+const globalEndpoint = ref('')
 
 const toggleTheme = () => {
   document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light')
   localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
+}
+
+const updateGlobalEndpoint = async () => {
+  try {
+    await systemSettingsAPI.updateSetting('global_endpoint', globalEndpoint.value)
+    ElMessage.success('全局端点已更新')
+  } catch (error) {
+    ElMessage.error('更新全局端点失败')
+  }
 }
 
 const syncConfig = async () => {
@@ -139,12 +159,22 @@ const checkBackupStatus = async () => {
   }
 }
 
+const loadSettings = async () => {
+  try {
+    const settings = await systemSettingsAPI.getSettings()
+    globalEndpoint.value = settings.global_endpoint || ''
+  } catch (error) {
+    console.error('加载系统设置失败:', error)
+  }
+}
+
 onMounted(() => {
   const savedTheme = localStorage.getItem('theme')
   if (savedTheme === 'dark') {
     isDark.value = true
     document.documentElement.setAttribute('data-theme', 'dark')
   }
+  loadSettings()
 })
 </script>
 
@@ -157,6 +187,12 @@ onMounted(() => {
 .settings h2 {
   margin-bottom: 20px;
   color: #303133;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 5px;
 }
 
 @media (max-width: 768px) {

@@ -50,8 +50,8 @@ import { peerAPI, batchAPI } from '@/api'
         <el-table-column type="selection" width="55" />
         <el-table-column prop="remark" label="名称" />
         <el-table-column prop="public_key" label="公钥" show-overflow-tooltip />
-        <el-table-column prop="allowed_ips" label="允许的 IP" />
-        <el-table-column prop="endpoint" label="端点" />
+        <el-table-column prop="allowed_ips" label="服务端允许的 IP" />
+        <el-table-column prop="client_allowed_ips" label="客户端允许的 IP" />
         <el-table-column label="状态">
           <template #default="scope">
             <el-tag :type="scope.row.status ? 'success' : 'danger'">
@@ -128,13 +128,23 @@ import { peerAPI, batchAPI } from '@/api'
           </div>
         </el-form-item>
         
-        <el-form-item label="允许的 IP" prop="allowed_ips">
+        <el-form-item label="服务端允许的 IP" prop="allowed_ips">
               <el-input
                 v-model="peerForm.allowed_ips"
                 placeholder="例如: 0.0.0.0/0，支持自定义，首项始终为 节点 IP/32"
               />
               <div class="form-tip">
-                    AllowedIPs 首项始终为 节点 IP/32，后续可自定义追加，支持 CIDR 格式，多个 IP 用逗号分隔
+                    服务端AllowedIPs 首项始终为 节点 IP/32，后续可自定义追加，支持 CIDR 格式，多个 IP 用逗号分隔
+                  </div>
+        </el-form-item>
+
+        <el-form-item label="客户端允许的 IP" prop="client_allowed_ips">
+              <el-input
+                v-model="peerForm.client_allowed_ips"
+                placeholder="例如: 0.0.0.0/0，客户端配置中使用的AllowedIPs"
+              />
+              <div class="form-tip">
+                    客户端AllowedIPs 用于客户端配置文件和二维码，指定客户端可以访问的IP范围
                   </div>
         </el-form-item>
 
@@ -149,13 +159,6 @@ import { peerAPI, batchAPI } from '@/api'
               </div>
           </el-form-item>
         
-        <el-form-item label="端点">
-          <el-input
-            v-model="peerForm.endpoint"
-            placeholder="例如: example.com:51820 (可选)"
-          />
-        </el-form-item>
-
         <el-form-item label="Keepalive (秒)" prop="keepalive">
           <el-input-number
             v-model="peerForm.keepalive"
@@ -268,8 +271,8 @@ const peerForm = reactive({
   remark: '',
   public_key: '',
   allowed_ips: '',
+  client_allowed_ips: '',
   peer_ip: '',
-  endpoint: '',
   keepalive: 30,
   status: true
 })
@@ -282,7 +285,10 @@ const formRules = {
     { required: true, message: '请输入或生成公钥', trigger: 'blur' }
   ],
   allowed_ips: [
-    { required: true, message: '请输入允许的 IP', trigger: 'blur' }
+    { required: true, message: '请输入服务端允许的 IP', trigger: 'blur' }
+  ],
+  client_allowed_ips: [
+    { required: true, message: '请输入客户端允许的 IP', trigger: 'blur' }
   ]
 }
 
@@ -319,9 +325,11 @@ const showAddDialog = () => {
   peerAPI.getAvailablePeerIP().then(res => {
     peerForm.peer_ip = res.peer_ip || ''
     peerForm.allowed_ips = res.peer_ip ? `${res.peer_ip}/32` : ''
+    peerForm.client_allowed_ips = '0.0.0.0/0'
   }).catch(() => {
     peerForm.peer_ip = ''
     peerForm.allowed_ips = ''
+    peerForm.client_allowed_ips = '0.0.0.0/0'
   })
 }
 
@@ -339,9 +347,9 @@ const showEditDialog = (peer) => {
   } else {
     peerForm.allowed_ips = peer.allowed_ips || '';
   }
-  peerForm.endpoint = peer.endpoint || ''
   peerForm.keepalive = typeof peer.keepalive === 'number' ? peer.keepalive : 30
   peerForm.status = typeof peer.status === 'boolean' ? peer.status : true
+  peerForm.client_allowed_ips = peer.client_allowed_ips || '0.0.0.0/0'
 }
 
 const resetForm = () => {
@@ -350,8 +358,8 @@ const resetForm = () => {
     remark: '',
     public_key: '',
     allowed_ips: '',
+    client_allowed_ips: '',
     peer_ip: '',
-    endpoint: '',
     keepalive: 30,
     status: true
   })
