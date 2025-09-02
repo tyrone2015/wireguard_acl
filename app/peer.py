@@ -306,7 +306,7 @@ def generate_client_config(peer, server_public_key=None):
 PrivateKey = {private_key}
 ListenPort = 51820
 Address = {peer.peer_ip}/32
-DNS = 10.0.0.1
+DNS = 192.168.198.1
 
 [Peer]
 PublicKey = {server_public_key or 'SERVER_PUBLIC_KEY'}

@@ -29,7 +29,7 @@ def generate_wg_config():
 	post_up = " && ".join(post_up_cmds) if post_up_cmds else ""
 	post_down = " && ".join(post_down_cmds) if post_down_cmds else ""
 
-	config = [f"[Interface]\nPrivateKey = {server_private_key}\nAddress = 10.0.0.1/24\nListenPort = 51820\n" + (f"PostUp = {post_up}\n" if post_up else "") + (f"PostDown = {post_down}\n" if post_down else "")]
+	config = [f"[Interface]\nPrivateKey = {server_private_key}\nAddress = 192.168.198.1/32\nListenPort = 51820\n" + (f"PostUp = {post_up}\n" if post_up else "") + (f"PostDown = {post_down}\n" if post_down else "")]
 	for p in peers:
 		remark = p.remark or ''
 		peer_ip = p.peer_ip if hasattr(p, 'peer_ip') and p.peer_ip else ''
