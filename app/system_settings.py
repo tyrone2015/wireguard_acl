@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from app.models import SystemSetting
 from app.auth import get_current_user, User
 import logging
@@ -60,11 +60,18 @@ def get_system_setting(key: str, current_user: User = Depends(get_current_user))
 		session.close()
 
 # 更新单个系统设置
-@router.put("/system/settings/{key}")
-def update_system_setting(key: str, value: str = "", current_user: User = Depends(get_current_user)):
+@router.put("/system/settings/{key}", response_model=None)
+async def update_system_setting(key: str, request: Request, current_user: User = Depends(get_current_user)):
 	from app.main import SessionLocal
 	session = SessionLocal()
 	try:
+		# 支持text/plain和json
+		if request.headers.get("content-type","").startswith("text/plain"):
+			value = await request.body()
+			value = value.decode("utf-8") if isinstance(value, bytes) else str(value)
+		else:
+			data = await request.json()
+			value = data.get("value", "") if isinstance(data, dict) else str(data)
 		setting = session.query(SystemSetting).filter_by(key=key).first()
 		if setting:
 			setting.value = value

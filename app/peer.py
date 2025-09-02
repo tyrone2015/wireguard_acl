@@ -282,19 +282,38 @@ def toggle_peer_status(peer_id: int, current_user: User = Depends(get_current_us
 def generate_client_config(peer, server_public_key=None):
 	from app.peer import decrypt_private_key
 	from app.main import SessionLocal
+	from app.settings import WG_GLOBAL_ENDPOINT
 	
 	private_key = decrypt_private_key(peer.private_key)
 	
-	# 从数据库获取全局端点设置
+	# 从数据库获取全局端点设置，如果没有则使用环境变量默认值
+	global_endpoint = WG_GLOBAL_ENDPOINT  # 默认使用环境变量
 	session = SessionLocal()
 	try:
 		from app.models import SystemSetting
 		setting = session.query(SystemSetting).filter_by(key='global_endpoint').first()
-		global_endpoint = setting.value if setting else ''
+		if setting and setting.value.strip():
+			global_endpoint = setting.value.strip()
+	except Exception as e:
+		logger.warning(f"获取全局端点设置失败，使用默认值: {str(e)}")
 	finally:
 		session.close()
 	
-	config = f"""[Interface]\nPrivateKey = {private_key}\nListenPort = 51820\nAddress = {peer.peer_ip}/32\nDNS = 10.0.0.1\n\n[Peer]\nPublicKey = {server_public_key or 'SERVER_PUBLIC_KEY'}\nPresharedKey = {peer.preshared_key}\nAllowedIPs = {peer.client_allowed_ips}\nEndpoint = {global_endpoint}\nPersistentKeepalive = {peer.keepalive}\n"""
+	# 如果端点为空，则不包含Endpoint字段
+	endpoint_line = f"Endpoint = {global_endpoint}\n" if global_endpoint else ""
+	
+	config = f"""[Interface]
+PrivateKey = {private_key}
+ListenPort = 51820
+Address = {peer.peer_ip}/32
+DNS = 10.0.0.1
+
+[Peer]
+PublicKey = {server_public_key or 'SERVER_PUBLIC_KEY'}
+PresharedKey = {peer.preshared_key}
+AllowedIPs = {peer.client_allowed_ips}
+{endpoint_line}PersistentKeepalive = {peer.keepalive}
+"""
 	return config
 
 # 下载客户端配置文件接口

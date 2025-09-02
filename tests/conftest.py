@@ -86,8 +86,10 @@ def setup_test_data(db_session):
     from app.models import User
     from app.auth import hash_password
     
-    # 创建测试用户
-    admin_user = User(username="admin", password_hash=hash_password("admin123"))
-    db_session.add(admin_user)
-    db_session.commit()
-    db_session.refresh(admin_user)
+    # 检查用户是否已存在，只在不存在时创建
+    existing_user = db_session.query(User).filter_by(username="admin").first()
+    if not existing_user:
+        admin_user = User(username="admin", password_hash=hash_password("admin123"))
+        db_session.add(admin_user)
+        db_session.commit()
+        db_session.refresh(admin_user)

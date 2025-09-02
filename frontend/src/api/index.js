@@ -210,6 +210,7 @@ export const systemSettingsAPI = {
   },
   // 更新单个设置
   updateSetting(key, value) {
+    // 直接传字符串，后端接收text/plain
     return request.put(`/system/settings/${key}`, value, {
       headers: {
         'Content-Type': 'text/plain'

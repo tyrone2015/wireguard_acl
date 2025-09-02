@@ -4,11 +4,14 @@
     <el-card>
       <el-form label-width="120px">
         <el-form-item label="全局端点" prop="globalEndpoint">
-          <el-input
-            v-model="globalEndpoint"
-            placeholder="例如: example.com:51820"
-            @blur="updateGlobalEndpoint"
-          />
+          <div class="inline-row">
+            <el-input
+              v-model="globalEndpoint"
+              placeholder="例如: example.com:51820"
+              class="flex-input"
+            />
+            <el-button type="primary" @click="updateGlobalEndpoint" size="small">保存</el-button>
+          </div>
           <div class="form-tip">
             WireGuard 服务器的全局端点地址，所有客户端配置都将使用此端点
           </div>
@@ -195,10 +198,24 @@ onMounted(() => {
   margin-top: 5px;
 }
 
+.inline-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.flex-input {
+  flex: 1 1 auto;
+}
+
 @media (max-width: 768px) {
   .settings {
     max-width: 100%;
     padding: 0 10px;
+  }
+  .inline-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
