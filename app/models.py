@@ -27,12 +27,16 @@ class Peer(Base):
 class ACL(Base):
 	__tablename__ = 'acls'
 	id = Column(Integer, primary_key=True, autoincrement=True)
-	peer_id = Column(Integer, ForeignKey('peers.id'), nullable=False)  # 保持NOT NULL
-	action = Column(String, nullable=False)  # allow / deny
-	target = Column(String, nullable=False)  # IP 或 CIDR
-	port = Column(String, nullable=False)  # 端口或端口范围
-	protocol = Column(String, nullable=False)  # 协议类型
-	direction = Column(String, nullable=False, default='both')  # 方向：inbound, outbound, both
+	peer_id = Column(Integer, ForeignKey('peers.id'), nullable=True)  # 改为可空，支持全局规则
+	rule_type = Column(String, nullable=False, default='firewall')  # firewall, route, nat
+	action = Column(String, nullable=False)  # allow/deny for firewall, enable/disable for route/nat
+	target = Column(String, nullable=False)  # IP/CIDR for firewall/route, source for nat
+	destination = Column(String, nullable=True)  # 目标网段 for route/nat
+	source_interface = Column(String, nullable=True)  # 源接口 for route/nat
+	destination_interface = Column(String, nullable=True)  # 目标接口 for route/nat
+	port = Column(String, nullable=False, default='')  # 端口 for firewall
+	protocol = Column(String, nullable=False, default='')  # 协议 for firewall
+	direction = Column(String, nullable=False, default='both')  # 方向 for firewall
 	enabled = Column(Boolean, default=True, nullable=False)  # 是否启用
 
 class ServerKey(Base):

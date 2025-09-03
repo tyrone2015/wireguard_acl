@@ -124,9 +124,10 @@ def get_default_interface():
 def apply_acl_to_iptables(acls):
 	"""
 	为 WireGuard 生成基于专用链 (WG_ACL) 的 iptables PostUp/PostDown 命令列表。
+	支持防火墙、路由和 NAT 规则。
 
 	设计要点：
-	- 使用单独链 WG_ACL 来管理规则，便于一次性 flush/删除
+	- 使用单独链 WG_ACL 来管理防火墙规则，便于一次性 flush/删除
 	- 在 FORWARD 链上把 wg 接口到出口接口的流量跳转到 WG_ACL
 	- 链内顺序： conntrack(ESTABLISHED,RELATED) -> per-ACL allow/deny -> 默认 DROP
 	- 为 NAT 表添加 POSTROUTING MASQUERADE
@@ -136,6 +137,11 @@ def apply_acl_to_iptables(acls):
 	post_down_cmds = []
 
 	iface = get_default_interface()
+	
+	# 分离不同类型的规则
+	firewall_acls = [acl for acl in acls if getattr(acl, 'rule_type', 'firewall') == 'firewall']
+	nat_acls = [acl for acl in acls if getattr(acl, 'rule_type', 'firewall') == 'nat']
+	
 	# 1) 创建并清空专用链
 	post_up_cmds.append("iptables -N WG_ACL 2>/dev/null || true")
 	post_up_cmds.append("iptables -F WG_ACL")
@@ -147,20 +153,20 @@ def apply_acl_to_iptables(acls):
 	post_up_cmds.append("iptables -A WG_ACL -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
 	post_down_cmds.insert(0, "iptables -F WG_ACL 2>/dev/null || true")
 
-	# 4) 按 ACL 生成 allow/deny 规则
+	# 4) 处理防火墙规则
 	from app.main import SessionLocal
 	session = SessionLocal()
 	peer_map = {p.id: p.peer_ip for p in session.query(Peer).all()}
 	session.close()
 
-	for acl in acls:
+	for acl in firewall_acls:
 		if acl.action not in ["allow", "deny"]:
 			continue
 		if not getattr(acl, 'enabled', True):
 			continue
 		
-		# 处理全局规则（peer_id为-1）和特定节点规则
-		if acl.peer_id == -1:
+		# 处理全局规则（peer_id为None）和特定节点规则
+		if acl.peer_id is None:
 			# 全局规则：为所有活跃节点应用
 			target_peers = session.query(Peer).filter_by(status=True).all()
 			peer_ips = [p.peer_ip for p in target_peers if p.peer_ip]
@@ -244,21 +250,30 @@ def apply_acl_to_iptables(acls):
 				post_up_cmds.append(cmd.strip())
 				post_down_cmds.append(f"iptables -D WG_ACL {base} {proto_opt} {port_opt} -j DROP 2>/dev/null || true")
 
-	# 5) 链末默认 DROP，确保未匹配的流量被拒绝
+	# 5) 处理 NAT 规则
+	for acl in nat_acls:
+		if not getattr(acl, 'enabled', True) or acl.action != 'allow':
+			continue
+		
+		source = acl.target
+		destination = getattr(acl, 'destination', None)
+		src_iface = getattr(acl, 'source_interface', iface)
+		dst_iface = getattr(acl, 'destination_interface', WG_INTERFACE)
+		
+		if destination:
+			# 添加 MASQUERADE NAT
+			nat_cmd = f"iptables -t nat -A POSTROUTING -s {source} -d {destination} -o {dst_iface} -j MASQUERADE 2>/dev/null || true"
+			post_up_cmds.append(nat_cmd)
+			post_down_cmds.append(f"iptables -t nat -D POSTROUTING -s {source} -d {destination} -o {dst_iface} -j MASQUERADE 2>/dev/null || true")
+		
+		# 允许转发
+		forward_cmd = f"iptables -I FORWARD 1 -s {source} -d {destination} -i {src_iface} -o {dst_iface} -j ACCEPT 2>/dev/null || true"
+		post_up_cmds.append(forward_cmd)
+		post_down_cmds.append(f"iptables -D FORWARD -s {source} -d {destination} -i {src_iface} -o {dst_iface} -j ACCEPT 2>/dev/null || true")
+
+	# 6) 链末默认 DROP，确保未匹配的流量被拒绝
 	post_up_cmds.append("iptables -A WG_ACL -j DROP")
 	post_down_cmds.append("iptables -F WG_ACL 2>/dev/null || true")
-
-	# 6) NAT MASQUERADE：对整个 WireGuard peer 网段进行 SNAT
-	try:
-		import app.settings as _settings
-		wg_cidr = _settings.PEER_IP_CIDR
-	except Exception:
-		wg_cidr = '10.0.0.0/24'
-
-	# 使用 -C 检查是否已存在（以避免重复），在某些系统上 -C 不可用时回退到追加
-	check_masq = f"iptables -t nat -C POSTROUTING -s {wg_cidr} -o {iface} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s {wg_cidr} -o {iface} -j MASQUERADE"
-	post_up_cmds.append(check_masq)
-	post_down_cmds.insert(0, f"iptables -t nat -D POSTROUTING -s {wg_cidr} -o {iface} -j MASQUERADE 2>/dev/null || true")
 
 	# 7) 删除链和清理操作
 	post_down_cmds.append(f"iptables -D FORWARD -i {WG_INTERFACE} -o {iface} -j WG_ACL 2>/dev/null || true")

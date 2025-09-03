@@ -99,11 +99,11 @@ export const aclAPI = {
   getACLs() {
     return request.get('/acls')
   },
-  // 创建 防火墙
+  // 创建 防火墙（支持多类型规则）
   createACL(data) {
     return request.post('/acls', data)
   },
-  // 更新 ACL
+  // 更新 ACL（支持多类型规则）
   updateACL(id, data) {
     return request.put(`/acls/${id}`, data)
   },
